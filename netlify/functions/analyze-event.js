@@ -94,31 +94,41 @@ ${detailText}
   "management_columns": ["管理列名1", "管理列名2", ...],
   "prize_rows": [
     {
-      "rank_min": 1,
-      "rank_max": 1,
+      "rank": 1,
       "min_score": null,
       "column_values": ["management_columns[0]の値", "management_columns[1]の値", "...（management_columnsと同じ長さの配列）"]
     },
     {
-      "rank_min": 4,
-      "rank_max": 8,
-      "min_score": 100000,
+      "rank": 2,
+      "min_score": null,
       "column_values": ["..."]
+    },
+    {
+      "rank": 4,
+      "min_score": 100000,
+      "column_values": ["4位〜8位かつ10万pt達成", "美容コスメセット", "5,000円", "10万pt以上", ""]
+    },
+    {
+      "rank": 5,
+      "min_score": 100000,
+      "column_values": ["4位〜8位かつ10万pt達成", "美容コスメセット", "5,000円", "10万pt以上", ""]
     }
   ],
   "special_notes": "イレギュラーな特典や注意事項があれば記載"
 }
 
-## prize_rowsの記入ルール
-- rank_min / rank_max: 対象の順位範囲（例: 1〜1位なら両方1、4〜8位なら4と8）
-- min_score: スコア条件がある場合のみ設定（例: 10万pt以上なら100000）。条件なしはnull
-- 同じ特典を複数順位にまとめられる場合は1つのエントリでまとめること（展開しないこと）
-- 特典対象外のユーザーにはエントリを作らない（エントリがなければ自動的に空欄になる）
+## prize_rowsの記入ルール（重要）
+- **1順位につき1エントリ**を作ること。同じ特典が複数順位に適用される場合も各順位ごとに別エントリを作る
+  NG: rank_min:4, rank_max:8 でまとめる（これは使わない）
+  OK: rank:4, rank:5, rank:6, rank:7, rank:8 で5エントリ作る
+- rank: その順位（数値）
+- min_score: スコア条件がある場合（例: 10万pt以上なら100000）。条件なしはnull
+- 特典対象外の順位はエントリを作らない
 - column_valuesはmanagement_columnsと同じ順序・同じ長さの配列
 - チェックボックス系列（住所収集済み、発送済み、撮影完了など）は空文字 ""
 - テキスト入力系列（発送日、日程、備考など）は空文字 ""
 - 特典内容・金額・ポイント条件などの情報列には適切な値を入れること
-  例: "特典内容" → "美容コスメセット（1万円相当）", "特典額（相当）" → "10,000円", "達成ポイント" → "10万pt以上"
+  例: "特典内容" → "美容コスメ詰め合わせセット", "特典額（相当）" → "5,000円", "達成ポイント" → "10万pt以上"
 
 ## 判定の基準
 - photo: 撮影、宣材、ロケ、ポスター、MV出演、フォトブックなど撮影関連
@@ -179,11 +189,14 @@ function buildRows(users, thresholds, analysis) {
     const rank = i + 1;
     const score = u.score || 0;
 
-    // 管理列の値を決定: rank_min/rank_max/min_scoreで条件マッチング
+    // 管理列の値を決定: rankで1:1マッチング（フラットリスト方式）
     const matchedPrize = prizeRows.find(pr => {
+      const mScore = pr.min_score ?? 0;
+      // 新形式: rank フィールド
+      if (pr.rank !== undefined) return pr.rank === rank && score >= mScore;
+      // 旧形式フォールバック: rank_min/rank_max
       const rMin = pr.rank_min ?? 1;
       const rMax = pr.rank_max ?? Infinity;
-      const mScore = pr.min_score ?? 0;
       return rank >= rMin && rank <= rMax && score >= mScore;
     });
 
