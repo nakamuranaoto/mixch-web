@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mixch 特典履行CSV生成</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --brand: #ee5a24;
+    --brand2: #ff6b6b;
+    --dark: #1a1a2e;
+    --mid: #16213e;
+    --accent: #00d2d3;
+    --text: #c8d6e5;
+    --muted: #8899aa;
+    --surface: #0f3460;
+    --success: #1dd1a1;
+    --warn: #ffd32a;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+    background: var(--dark);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 32px 16px 64px;
+  }
+
+  .container { width: 100%; max-width: 680px; }
+
+  /* ── ヘッダー ── */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 36px;
+  }
+  .header-icon {
+    width: 48px; height: 48px;
+    background: linear-gradient(135deg, var(--brand2), var(--brand));
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; flex-shrink: 0;
+  }
+  .header-title { font-size: 20px; font-weight: 700; color: #fff; }
+  .header-sub { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+  /* ── カード ── */
+  .card {
+    background: var(--mid);
+    border: 1px solid rgba(255,255,255,.07);
+    border-radius: 16px;
+    padding: 28px;
+    margin-bottom: 16px;
+  }
+
+  /* ── 入力 ── */
+  .input-row {
+    display: flex;
+    gap: 10px;
+  }
+  .url-input {
+    flex: 1;
+    background: var(--dark);
+    border: 1.5px solid rgba(255,255,255,.12);
+    border-radius: 10px;
+    padding: 13px 16px;
+    font-size: 14px;
+    color: var(--text);
+    outline: none;
+    transition: border-color .2s;
+  }
+  .url-input::placeholder { color: var(--muted); }
+  .url-input:focus { border-color: var(--accent); }
+
+  .btn {
+    padding: 13px 22px;
+    border: none;
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity .2s, transform .1s;
+    white-space: nowrap;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--brand2), var(--brand));
+    color: #fff;
+  }
+  .btn-dl {
+    background: var(--success);
+    color: var(--dark);
+    width: 100%;
+    padding: 15px;
+    font-size: 15px;
+    margin-top: 20px;
+  }
+  .btn-copy {
+    background: var(--surface);
+    color: var(--accent);
+    padding: 8px 16px;
+    font-size: 12px;
+    margin-top: 8px;
+  }
+
+  /* ── ステータス ── */
+  .status-box {
+    display: none;
+    margin-top: 20px;
+    padding: 16px;
+    background: var(--dark);
+    border-radius: 10px;
+    font-size: 13px;
+    line-height: 2;
+  }
+  .status-box.show { display: block; }
+
+  .log-line { display: flex; align-items: baseline; gap: 8px; }
+  .log-line .icon { flex-shrink: 0; }
+  .log-line.success .icon { color: var(--success); }
+  .log-line.error .icon { color: var(--brand2); }
+  .log-line.info .icon { color: var(--accent); }
+  .log-line.warn .icon { color: var(--warn); }
+  .spinner {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid rgba(0,210,211,.3);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── 解析結果 ── */
+  .result-card { display: none; }
+  .result-card.show { display: block; }
+
+  .meta-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .meta-item {
+    background: var(--dark);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .meta-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .meta-value { font-size: 15px; font-weight: 700; color: #fff; }
+
+  .type-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .type-photo    { background: rgba(99,179,237,.2); color: #63b3ed; }
+  .type-music    { background: rgba(154,130,255,.2); color: #9a82ff; }
+  .type-cosmetics{ background: rgba(255,105,180,.2); color: #ff69b4; }
+  .type-general  { background: rgba(255,211,42,.2);  color: var(--warn); }
+
+  .notes-box {
+    background: rgba(238,90,36,.1);
+    border: 1px solid rgba(238,90,36,.3);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #ffb347;
+    margin-top: 12px;
+    line-height: 1.6;
+  }
+
+  .reason-box {
+    background: var(--dark);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 8px;
+    line-height: 1.6;
+  }
+
+  /* ── CSV preview ── */
+  .csv-preview {
+    background: var(--dark);
+    border-radius: 10px;
+    padding: 14px;
+    font: 11px/1.7 "SF Mono", "Courier New", monospace;
+    color: #00d2d3;
+    overflow-x: auto;
+    max-height: 180px;
+    overflow-y: auto;
+    white-space: pre;
+    margin-top: 4px;
+  }
+
+  .section-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    margin-bottom: 10px;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <div class="header-icon">🎯</div>
+    <div>
+      <div class="header-title">Mixch 特典履行CSV生成</div>
+      <div class="header-sub">AI解析でイレギュラー特典にも対応</div>
+    </div>
+  </div>
+
+  <!-- 入力カード -->
+  <div class="card">
+    <div class="input-row">
+      <input
+        id="urlInput"
+        class="url-input"
+        type="url"
+        placeholder="https://mixch.tv/live/event/XXXXX"
+        autocomplete="off"
+      />
+      <button class="btn btn-primary" id="analyzeBtn" onclick="analyze()">
+        CSV生成
+      </button>
+    </div>
+
+    <!-- ステータスログ -->
+    <div class="status-box" id="statusBox"></div>
+  </div>
+
+  <!-- 解析結果カード -->
+  <div class="card result-card" id="resultCard">
+
+    <div class="section-title">📊 解析結果</div>
+
+    <div class="meta-grid" id="metaGrid"></div>
+
+    <div id="reasonBox" class="reason-box" style="display:none"></div>
+    <div id="notesBox" class="notes-box" style="display:none"></div>
+
+    <div style="margin-top:20px">
+      <div class="section-title">📄 CSVプレビュー</div>
+      <div class="csv-preview" id="csvPreview"></div>
+      <button class="btn btn-copy" onclick="copyCSV()">📋 CSVをコピー</button>
+    </div>
+
+    <button class="btn btn-dl" id="dlBtn" onclick="downloadCSV()">
+      ⬇️ CSVをダウンロード
+    </button>
+  </div>
+
+</div>
+
+<script>
+let _csv = "";
+let _filename = "";
+
+function log(icon, text, type = "info") {
+  const box = document.getElementById("statusBox");
+  box.classList.add("show");
+  const line = document.createElement("div");
+  line.className = `log-line ${type}`;
+  if (icon === "spin") {
+    line.innerHTML = `<span class="spinner"></span><span>${text}</span>`;
+  } else {
+    line.innerHTML = `<span class="icon">${icon}</span><span>${text}</span>`;
+  }
+  box.appendChild(line);
+}
+
+function clearLog() {
+  const box = document.getElementById("statusBox");
+  box.innerHTML = "";
+  box.classList.remove("show");
+}
+
+function typeBadge(type) {
+  const map = {
+    photo:     ["撮影系",   "type-photo"],
+    music:     ["楽曲制作系","type-music"],
+    cosmetics: ["コスメ・物販系","type-cosmetics"],
+    general:   ["汎用",    "type-general"],
+  };
+  const [label, cls] = map[type] || ["不明", "type-general"];
+  return `<span class="type-badge ${cls}">${label}</span>`;
+}
+
+async function analyze() {
+  const url = document.getElementById("urlInput").value.trim();
+  if (!url || !url.includes("mixch.tv")) {
+    alert("MixchのイベントURLを入力してください");
+    return;
+  }
+
+  clearLog();
+  _csv = "";
+  _filename = "";
+  document.getElementById("resultCard").classList.remove("show");
+
+  const btn = document.getElementById("analyzeBtn");
+  btn.disabled = true;
+
+  log("spin", "データ取得中...");
+
+  try {
+    const res = await fetch("/.netlify/functions/analyze-event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+
+    const data = await res.json();
+
+    if (!data.success) {
+      log("❌", `エラー: ${data.error}`, "error");
+      return;
+    }
+
+    const m = data.meta;
+    log("✅", `${m.title}`, "success");
+    log("👥", `参加者: ${m.userCount}人`, "info");
+    if (m.thresholds.length > 0) {
+      log("🎯", `閾値: ${m.thresholds.map(t => t/10000 + "万pt").join(", ")}`, "info");
+    }
+    log("🤖", `AI判定: ${m.eventType}（${m.eventTypeReason}）`, "info");
+    log("✅", "CSV生成完了！", "success");
+
+    _csv = data.csv;
+    _filename = m.filename;
+
+    // 結果カード
+    const card = document.getElementById("resultCard");
+    card.classList.add("show");
+
+    // メタグリッド
+    document.getElementById("metaGrid").innerHTML = `
+      <div class="meta-item">
+        <div class="meta-label">イベント</div>
+        <div class="meta-value" style="font-size:13px">${m.title}</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">参加者数</div>
+        <div class="meta-value">${m.userCount} 人</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">種別</div>
+        <div class="meta-value">${typeBadge(m.eventType)}</div>
+      </div>
+      <div class="meta-item">
+        <div class="meta-label">閾値</div>
+        <div class="meta-value" style="font-size:13px">
+          ${m.thresholds.length > 0 ? m.thresholds.map(t => t/10000 + "万pt").join(" / ") : "なし"}
+        </div>
+      </div>
+    `;
+
+    // 判定理由
+    const reasonBox = document.getElementById("reasonBox");
+    reasonBox.textContent = "💡 " + m.eventTypeReason;
+    reasonBox.style.display = "block";
+
+    // 特記事項
+    const notesBox = document.getElementById("notesBox");
+    if (m.specialNotes) {
+      notesBox.textContent = "⚠️ " + m.specialNotes;
+      notesBox.style.display = "block";
+    } else {
+      notesBox.style.display = "none";
+    }
+
+    // CSVプレビュー（最初の4行）
+    const lines = _csv.replace(/^﻿/, "").split("\r\n");
+    document.getElementById("csvPreview").textContent = lines.slice(0, 4).join("\n");
+
+  } catch (e) {
+    log("❌", `通信エラー: ${e.message}`, "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function downloadCSV() {
+  if (!_csv) return;
+  const blob = new Blob([_csv], { type: "text/csv;charset=utf-8;" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = _filename;
+  a.click();
+}
+
+function copyCSV() {
+  if (!_csv) return;
+  navigator.clipboard.writeText(_csv).then(() => {
+    const btn = event.target;
+    btn.textContent = "✅ コピーしました";
+    setTimeout(() => btn.textContent = "📋 CSVをコピー", 2000);
+  });
+}
+
+// Enterキーで実行
+document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("urlInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") analyze();
+  });
+});
+</script>
+</body>
+</html>

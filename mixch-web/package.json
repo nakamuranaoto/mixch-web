@@ -1,0 +1,8 @@
+{
+  "name": "mixch-web",
+  "version": "1.0.0",
+  "description": "Mixch 特典履行管理CSV生成Webツール",
+  "engines": {
+    "node": ">=18"
+  }
+}
