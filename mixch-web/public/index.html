@@ -468,6 +468,35 @@
   }
   .edit-cell::placeholder { color: var(--muted); opacity: .5; }
 
+  /* ── 手動追加行 ── */
+  .manual-row td { border-left: 2px solid var(--accent); }
+  .manual-row td:not(:first-child) { border-left: none; }
+  .manual-row { background: rgba(0,210,211,.04); }
+  .delete-row-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 15px;
+    padding: 3px 7px;
+    border-radius: 4px;
+    transition: color .15s, background .15s;
+  }
+  .delete-row-btn:hover { color: var(--danger); background: rgba(255,107,107,.12); }
+  .add-row-wrap { padding: 10px 0 4px; }
+  .add-row-btn {
+    background: transparent;
+    border: 1px dashed rgba(255,255,255,.2);
+    color: var(--muted);
+    width: 100%;
+    padding: 9px;
+    border-radius: 7px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: border-color .2s, color .2s;
+  }
+  .add-row-btn:hover { border-color: var(--accent); color: var(--accent); }
+
   /* ── スケルトンローダー ── */
   .skeleton {
     background: linear-gradient(90deg, var(--surface) 25%, rgba(255,255,255,.05) 50%, var(--surface) 75%);
@@ -599,7 +628,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/fireba
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, collection, addDoc, getDocs, doc, updateDoc,
-  query, orderBy, onSnapshot, getDoc, deleteDoc }
+  query, orderBy, onSnapshot, getDoc, deleteDoc, arrayUnion, arrayRemove }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -863,15 +892,12 @@ async function openFulfillment(docId, ev) {
   });
 }
 
-// 列の種類を判定: "check" | "text" | "readonly"
+// 列の種類を判定: "check" | "text"
 function getColumnType(col) {
-  // 日付・テキスト入力系（〇〇日、備考、メモ、住所、上限、内容 で終わる列）
-  const textSuffixes = ["日", "日程", "備考", "メモ", "住所", "期日", "上限", "内容"];
-  if (textSuffixes.some(s => col.endsWith(s))) return "text";
   // 完了チェック系（済み・完了・対象などを含む列）
   const checkKeywords = ["完了","済み","済","発送済","撮影済","配送済","納品済","対象","掲載","調整済","確認済","収集済"];
   if (checkKeywords.some(k => col.includes(k))) return "check";
-  return "readonly";
+  return "text"; // それ以外は全てテキスト入力
 }
 
 function renderFulfillment(docId, ev) {
@@ -892,8 +918,9 @@ function renderFulfillment(docId, ev) {
   const mgmtHeaders = mgmtStartIdx >= 0 ? headers.slice(mgmtStartIdx) : [];
 
   const fulfill = ev.fulfillment || {};
+  const manualIds = ev.manual_row_ids || [];
 
-  // チェックボックス列のみでプログレスを計算
+  // チェックボックス列のみでプログレスを計算（CSV行 + 手動行）
   let doneCount = 0, totalCount = 0;
   rows.forEach((row, ri) => {
     mgmtHeaders.forEach((col, ci) => {
@@ -902,8 +929,23 @@ function renderFulfillment(docId, ev) {
       if (fulfill[`${ri}_${ci}`]) doneCount++;
     });
   });
+  manualIds.forEach(mId => {
+    mgmtHeaders.forEach((col, ci) => {
+      if (getColumnType(col) !== "check") return;
+      totalCount++;
+      if (fulfill[`m_${mId}_${ci}`]) doneCount++;
+    });
+  });
 
   const pct = totalCount > 0 ? Math.round(doneCount/totalCount*100) : 0;
+
+  // テキストセルをレンダリングするヘルパー
+  function textCell(docId, key, initVal) {
+    const saved = typeof fulfill["t_"+key] === "string" ? fulfill["t_"+key] : initVal;
+    const esc = saved.replace(/&/g,"&amp;").replace(/"/g,"&quot;");
+    return `<td><input class="edit-cell" type="text" value="${esc}" placeholder="—"
+      onblur="saveText('${docId}','t_${key}',this.value)"></td>`;
+  }
 
   let html = `
     <div class="fulfillment-header">
@@ -918,10 +960,12 @@ function renderFulfillment(docId, ev) {
     <thead><tr>
       <th>順位</th><th>ライバー名</th><th>ポイント</th>
       ${mgmtHeaders.map(h=>`<th>${h}</th>`).join("")}
+      <th></th>
     </tr></thead>
     <tbody>
   `;
 
+  // CSV行
   rows.forEach((row, ri) => {
     const rank = row[0] || "";
     const name = row[1] || "";
@@ -929,29 +973,71 @@ function renderFulfillment(docId, ev) {
     html += `<tr><td>${rank}</td><td>${name}</td><td>${pts}</td>`;
     mgmtHeaders.forEach((col, ci) => {
       const key = `${ri}_${ci}`;
-      const colType = getColumnType(col);
-      if (colType === "check") {
+      if (getColumnType(col) === "check") {
         const checked = !!fulfill[key];
         html += `<td class="check-cell"><button class="check-btn${checked?" checked":""}"
           onclick="toggleCheck('${docId}','${key}',this)">${checked?"✓":""}</button></td>`;
-      } else if (colType === "text") {
-        // Firestoreの保存値を優先、なければCSVの初期値
-        const csvVal = row[mgmtStartIdx + ci] || "";
-        const saved = typeof fulfill["t_"+key] === "string" ? fulfill["t_"+key] : csvVal;
-        const esc = saved.replace(/&/g,"&amp;").replace(/"/g,"&quot;");
-        html += `<td><input class="edit-cell" type="text" value="${esc}" placeholder="—"
-          onblur="saveText('${docId}','t_${key}',this.value)"></td>`;
       } else {
-        const val = row[mgmtStartIdx + ci] || "";
-        html += `<td>${val}</td>`;
+        const csvVal = row[mgmtStartIdx + ci] || "";
+        html += textCell(docId, key, csvVal);
       }
     });
+    html += `<td></td></tr>`;
+  });
+
+  // 手動追加行
+  manualIds.forEach(mId => {
+    const rank = typeof fulfill[`t_m_${mId}_rank`] === "string" ? fulfill[`t_m_${mId}_rank`] : "";
+    const name = typeof fulfill[`t_m_${mId}_name`] === "string" ? fulfill[`t_m_${mId}_name`] : "";
+    const score = typeof fulfill[`t_m_${mId}_score`] === "string" ? fulfill[`t_m_${mId}_score`] : "";
+    const escRank = rank.replace(/&/g,"&amp;").replace(/"/g,"&quot;");
+    const escName = name.replace(/&/g,"&amp;").replace(/"/g,"&quot;");
+    const escScore = score.replace(/&/g,"&amp;").replace(/"/g,"&quot;");
+    html += `<tr class="manual-row">
+      <td><input class="edit-cell" type="text" value="${escRank}" placeholder="順位"
+        onblur="saveText('${docId}','t_m_${mId}_rank',this.value)"></td>
+      <td><input class="edit-cell" type="text" value="${escName}" placeholder="ライバー名"
+        onblur="saveText('${docId}','t_m_${mId}_name',this.value)"></td>
+      <td><input class="edit-cell" type="text" value="${escScore}" placeholder="ポイント"
+        onblur="saveText('${docId}','t_m_${mId}_score',this.value)"></td>`;
+    mgmtHeaders.forEach((col, ci) => {
+      const key = `m_${mId}_${ci}`;
+      if (getColumnType(col) === "check") {
+        const checked = !!fulfill[key];
+        html += `<td class="check-cell"><button class="check-btn${checked?" checked":""}"
+          onclick="toggleCheck('${docId}','${key}',this)">${checked?"✓":""}</button></td>`;
+      } else {
+        html += textCell(docId, key, "");
+      }
+    });
+    html += `<td><button class="delete-row-btn" onclick="deleteManualRow('${docId}','${mId}')" title="この行を削除">×</button></td>`;
     html += `</tr>`;
   });
 
-  html += `</tbody></table></div>`;
+  html += `</tbody></table></div>
+    <div class="add-row-wrap">
+      <button class="add-row-btn" onclick="addManualRow('${docId}')">＋ 行を手動追加</button>
+    </div>`;
   document.getElementById("fulfillContent").innerHTML = html;
 }
+
+window.addManualRow = async function(docId) {
+  const newId = Date.now().toString(36);
+  try {
+    await updateDoc(doc(_db, "events", docId), { manual_row_ids: arrayUnion(newId) });
+  } catch(e) {
+    showToast("追加エラー: " + e.message, "error");
+  }
+};
+
+window.deleteManualRow = async function(docId, rowId) {
+  if (!confirm("この行を削除しますか？")) return;
+  try {
+    await updateDoc(doc(_db, "events", docId), { manual_row_ids: arrayRemove(rowId) });
+  } catch(e) {
+    showToast("削除エラー: " + e.message, "error");
+  }
+};
 
 window.saveText = async function(docId, key, value) {
   try {
