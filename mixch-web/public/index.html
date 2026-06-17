@@ -325,6 +325,20 @@
     transition: border-color .2s;
   }
   .history-item:hover { border-color: var(--accent); }
+  .history-delete-btn {
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 6px;
+    opacity: 0;
+    transition: opacity .15s, color .15s, background .15s;
+    flex-shrink: 0;
+  }
+  .history-item:hover .history-delete-btn { opacity: 1; }
+  .history-delete-btn:hover { color: var(--danger); background: rgba(255,107,107,.12); }
   .history-info { flex: 1; min-width: 0; }
   .history-title {
     font-size: 14px;
@@ -585,7 +599,7 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/fireba
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getFirestore, collection, addDoc, getDocs, doc, updateDoc,
-  query, orderBy, onSnapshot, getDoc }
+  query, orderBy, onSnapshot, getDoc, deleteDoc }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -801,12 +815,28 @@ window.loadHistory = async function() {
           <div class="history-meta">${date} · ${ev.userCount}人 · ${ev.savedBy||""}</div>
         </div>
         ${total>0?`<div class="history-badge">${fulfilled}/${total} 完了</div>`:`<div class="history-badge">${typeLabelText(ev.eventType)}</div>`}
+        <button class="history-delete-btn" title="削除" data-id="${d.id}">🗑️</button>
       `;
+      item.querySelector(".history-delete-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        deleteEvent(d.id, ev.title);
+      });
       item.addEventListener("click", () => openFulfillment(d.id, ev));
       listEl.appendChild(item);
     });
   } catch(e) {
     listEl.innerHTML = `<div class="empty-state"><span class="icon">⚠️</span>${e.message}</div>`;
+  }
+};
+
+window.deleteEvent = async function(docId, title) {
+  if (!confirm(`「${title}」を削除しますか？\nこの操作は元に戻せません。`)) return;
+  try {
+    await deleteDoc(doc(db, "events", docId));
+    showToast("削除しました", "info");
+    loadHistory();
+  } catch(e) {
+    showToast("削除エラー: " + e.message, "error");
   }
 };
 
