@@ -94,18 +94,30 @@ ${detailText}
   "management_columns": ["管理列名1", "管理列名2", ...],
   "prize_rows": [
     {
-      "condition": "1位 または 達成特典XX万pt または ―",
+      "rank_min": 1,
+      "rank_max": 1,
+      "min_score": null,
       "column_values": ["management_columns[0]の値", "management_columns[1]の値", "...（management_columnsと同じ長さの配列）"]
+    },
+    {
+      "rank_min": 4,
+      "rank_max": 8,
+      "min_score": 100000,
+      "column_values": ["..."]
     }
   ],
   "special_notes": "イレギュラーな特典や注意事項があれば記載"
 }
 
-## column_valuesの記入ルール
-- management_columnsと同じ順序・同じ長さで値を返すこと
-- チェックボックス系の列（住所収集済み、発送済み、撮影完了など）は空文字 "" にすること
-- テキスト入力系の列（発送日、日程、備考など）は空文字 "" にすること
-- 特典内容・金額・ポイント数などの情報列には適切な値を入れること
+## prize_rowsの記入ルール
+- rank_min / rank_max: 対象の順位範囲（例: 1〜1位なら両方1、4〜8位なら4と8）
+- min_score: スコア条件がある場合のみ設定（例: 10万pt以上なら100000）。条件なしはnull
+- 同じ特典を複数順位にまとめられる場合は1つのエントリでまとめること（展開しないこと）
+- 特典対象外のユーザーにはエントリを作らない（エントリがなければ自動的に空欄になる）
+- column_valuesはmanagement_columnsと同じ順序・同じ長さの配列
+- チェックボックス系列（住所収集済み、発送済み、撮影完了など）は空文字 ""
+- テキスト入力系列（発送日、日程、備考など）は空文字 ""
+- 特典内容・金額・ポイント条件などの情報列には適切な値を入れること
   例: "特典内容" → "美容コスメセット（1万円相当）", "特典額（相当）" → "10,000円", "達成ポイント" → "10万pt以上"
 
 ## 判定の基準
@@ -167,19 +179,24 @@ function buildRows(users, thresholds, analysis) {
     const rank = i + 1;
     const score = u.score || 0;
 
-    // 管理列の値を決定
+    // 管理列の値を決定: rank_min/rank_max/min_scoreで条件マッチング
+    const matchedPrize = prizeRows.find(pr => {
+      const rMin = pr.rank_min ?? 1;
+      const rMax = pr.rank_max ?? Infinity;
+      const mScore = pr.min_score ?? 0;
+      return rank >= rMin && rank <= rMax && score >= mScore;
+    });
+
     let mgmtValues;
-    if (rank <= prizeRows.length) {
-      const pr = prizeRows[rank - 1];
-      if (Array.isArray(pr.column_values) && pr.column_values.length > 0) {
-        // column_valuesが返ってきた場合はそれを使用（management_columnsと1:1対応）
-        mgmtValues = mgmtCols.map((col, ci) => pr.column_values[ci] ?? "");
+    if (matchedPrize) {
+      if (Array.isArray(matchedPrize.column_values) && matchedPrize.column_values.length > 0) {
+        mgmtValues = mgmtCols.map((col, ci) => matchedPrize.column_values[ci] ?? "");
       } else {
         // フォールバック: 旧形式（condition/description/notes）
         mgmtValues = mgmtCols.map((col, ci) => {
-          if (ci === 0) return pr.condition || "";
-          if (ci === 1) return pr.description || "";
-          if (col === "備考") return pr.notes || "";
+          if (ci === 0) return matchedPrize.condition || "";
+          if (ci === 1) return matchedPrize.description || "";
+          if (col === "備考") return matchedPrize.notes || "";
           return "";
         });
       }
