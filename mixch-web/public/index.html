@@ -434,6 +434,26 @@
   }
   .check-btn:hover { border-color: var(--accent); }
 
+  /* ── テキスト編集セル ── */
+  .edit-cell {
+    background: transparent;
+    border: none;
+    border-bottom: 1px dashed rgba(255,255,255,.2);
+    color: var(--text);
+    font-size: 13px;
+    width: 100%;
+    min-width: 80px;
+    padding: 3px 4px;
+    outline: none;
+    font-family: inherit;
+  }
+  .edit-cell:focus {
+    border-bottom: 1.5px solid var(--accent);
+    background: rgba(0,210,211,.05);
+    border-radius: 3px 3px 0 0;
+  }
+  .edit-cell::placeholder { color: var(--muted); opacity: .5; }
+
   /* ── スケルトンローダー ── */
   .skeleton {
     background: linear-gradient(90deg, var(--surface) 25%, rgba(255,255,255,.05) 50%, var(--surface) 75%);
@@ -813,7 +833,22 @@ async function openFulfillment(docId, ev) {
   });
 }
 
+// 列の種類を判定: "check" | "text" | "readonly"
+function getColumnType(col) {
+  // 日付・テキスト入力系（〇〇日、備考、メモ、住所、上限、内容 で終わる列）
+  const textSuffixes = ["日", "日程", "備考", "メモ", "住所", "期日", "上限", "内容"];
+  if (textSuffixes.some(s => col.endsWith(s))) return "text";
+  // 完了チェック系（済み・完了・対象などを含む列）
+  const checkKeywords = ["完了","済み","済","発送済","撮影済","配送済","納品済","対象","掲載","調整済","確認済","収集済"];
+  if (checkKeywords.some(k => col.includes(k))) return "check";
+  return "readonly";
+}
+
 function renderFulfillment(docId, ev) {
+  // テキスト入力中は再レンダリングをスキップ（入力内容消失防止）
+  const activeEl = document.activeElement;
+  if (activeEl && activeEl.classList.contains("edit-cell")) return;
+
   const csvLines = (ev.csv || "").replace(/^﻿/, "").split("\r\n").filter(Boolean);
   if (csvLines.length < 2) {
     document.getElementById("fulfillContent").innerHTML = `<div class="empty-state"><span class="icon">⚠️</span>CSVデータがありません</div>`;
@@ -823,22 +858,18 @@ function renderFulfillment(docId, ev) {
   const headers = parseCSVLine(csvLines[0]);
   const rows = csvLines.slice(1).map(parseCSVLine);
 
-  // 管理列（順位/名前/ID/ポイント/達成列以降）のインデックスを特定
-  const fixedCols = ["順位","ライバー名","ミクチャID","ポイント"];
   const mgmtStartIdx = headers.findIndex((h,i) => i >= 4 && !h.includes("万pt達成"));
   const mgmtHeaders = mgmtStartIdx >= 0 ? headers.slice(mgmtStartIdx) : [];
 
   const fulfill = ev.fulfillment || {};
 
-  // 完了数カウント
+  // チェックボックス列のみでプログレスを計算
   let doneCount = 0, totalCount = 0;
   rows.forEach((row, ri) => {
     mgmtHeaders.forEach((col, ci) => {
-      const isCheckable = isCheckableColumn(col);
-      if (!isCheckable) return;
+      if (getColumnType(col) !== "check") return;
       totalCount++;
-      const key = `${ri}_${ci}`;
-      if (fulfill[key]) doneCount++;
+      if (fulfill[`${ri}_${ci}`]) doneCount++;
     });
   });
 
@@ -868,14 +899,20 @@ function renderFulfillment(docId, ev) {
     html += `<tr><td>${rank}</td><td>${name}</td><td>${pts}</td>`;
     mgmtHeaders.forEach((col, ci) => {
       const key = `${ri}_${ci}`;
-      const checked = !!fulfill[key];
-      if (isCheckableColumn(col)) {
+      const colType = getColumnType(col);
+      if (colType === "check") {
+        const checked = !!fulfill[key];
         html += `<td class="check-cell"><button class="check-btn${checked?" checked":""}"
           onclick="toggleCheck('${docId}','${key}',this)">${checked?"✓":""}</button></td>`;
+      } else if (colType === "text") {
+        // Firestoreの保存値を優先、なければCSVの初期値
+        const csvVal = row[mgmtStartIdx + ci] || "";
+        const saved = typeof fulfill["t_"+key] === "string" ? fulfill["t_"+key] : csvVal;
+        const esc = saved.replace(/&/g,"&amp;").replace(/"/g,"&quot;");
+        html += `<td><input class="edit-cell" type="text" value="${esc}" placeholder="—"
+          onblur="saveText('${docId}','t_${key}',this.value)"></td>`;
       } else {
-        // テキスト列はCSVの値を表示
-        const colIdx = mgmtStartIdx + ci;
-        const val = row[colIdx] || "";
+        const val = row[mgmtStartIdx + ci] || "";
         html += `<td>${val}</td>`;
       }
     });
@@ -886,10 +923,15 @@ function renderFulfillment(docId, ev) {
   document.getElementById("fulfillContent").innerHTML = html;
 }
 
-function isCheckableColumn(col) {
-  const checkKeywords = ["完了","済","済み","済み","発送","撮影","配送","納品","対象","掲載","調整","確認","収集","完了","完了日"];
-  return checkKeywords.some(k => col.includes(k));
-}
+window.saveText = async function(docId, key, value) {
+  try {
+    const update = {};
+    update[`fulfillment.${key}`] = value;
+    await updateDoc(doc(_db, "events", docId), update);
+  } catch(e) {
+    showToast("保存エラー: " + e.message, "error");
+  }
+};
 
 window.toggleCheck = async function(docId, key, btn) {
   const newVal = !btn.classList.contains("checked");
